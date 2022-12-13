@@ -35,7 +35,7 @@ type WorkerReply struct {
 	NMap     int // number of map task
 	NReduce  int // number of reduce task
 
-	MapTaskNumber int    // map task only
+	MapTaskNumber int    // maptask only
 	Filename      string // maptask only
 
 	ReduceTaskNumber int // reducetask only

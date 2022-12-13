@@ -9,10 +9,13 @@ package main
 // Please do not change this file.
 //
 
-import "../mr"
-import "time"
-import "os"
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"time"
+
+	"TEST_6.824/src/mr"
+)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -25,5 +28,6 @@ func main() {
 		time.Sleep(time.Second)
 	}
 
+	fmt.Println("all tasks have fininshed, exit...")
 	time.Sleep(time.Second)
 }

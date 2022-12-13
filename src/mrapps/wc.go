@@ -6,10 +6,13 @@ package main
 // go build -buildmode=plugin wc.go
 //
 
-import "../mr"
-import "unicode"
-import "strings"
-import "strconv"
+import (
+	"strconv"
+	"strings"
+	"unicode"
+
+	"TEST_6.824/src/mr"
+)
 
 //
 // The map function is called once for each file of input. The first
@@ -27,7 +30,7 @@ func Map(filename string, contents string) []mr.KeyValue {
 
 	kva := []mr.KeyValue{}
 	for _, w := range words {
-		kv := mr.KeyValue{w, "1"}
+		kv := mr.KeyValue{Key: w, Value: "1"}
 		kva = append(kva, kv)
 	}
 	return kva

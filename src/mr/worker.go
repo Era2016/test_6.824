@@ -1,7 +1,7 @@
 package mr
 
 import (
-	"encoding/json"
+	"bufio"
 	"fmt"
 	"hash/fnv"
 	"io/ioutil"
@@ -9,7 +9,7 @@ import (
 	"net/rpc"
 	"os"
 	"sort"
-	"strconv"
+	"strings"
 	"time"
 )
 
@@ -46,133 +46,142 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
-
-	// uncomment to send the Example RPC to the master.
-	// CallExample()
-
-	// periodically ask master for task
+	// rpc master for job
 	for {
 		args := WorkerArgs{}
 		reply := WorkerReply{}
-		ok := call("Master.AllocateTask", &args, &reply)
-		if !ok || reply.Tasktype == 3 {
-			// the master may died, which means the job is finished
-			break
+		if ret := call("Master.Deploytask", &args, &reply); !ret {
+			fmt.Println("rpc call failed")
+		} else {
+			fmt.Printf("[Tasktype: %d], [NMap: %d], [NReduce: %d], [MapTaskNumber: %d], [Filename: %s], [ReduceTaskNumber: %d]\n",
+				reply.Tasktype, reply.NMap, reply.NReduce, reply.MapTaskNumber,
+				reply.Filename, reply.ReduceTaskNumber)
 		}
+
 		if reply.Tasktype == 0 {
-			// map task
-			intermediate := []KeyValue{}
-
-			// open && read the file
-			file, err := os.Open(reply.Filename)
-			if err != nil {
-				log.Fatalf("cannot open %v", reply.Filename)
-			}
-			content, err := ioutil.ReadAll(file)
-			if err != nil {
-				log.Fatalf("cannot read %v", reply.Filename)
-			}
-			file.Close()
-
-			// call mapf
-			kva := mapf(reply.Filename, string(content))
-			intermediate = append(intermediate, kva...)
-
-			// hash into buckets
-			buckets := make([][]KeyValue, reply.NReduce)
-			for i := range buckets {
-				buckets[i] = []KeyValue{}
-			}
-			for _, kva := range intermediate {
-				buckets[ihash(kva.Key)%reply.NReduce] = append(buckets[ihash(kva.Key)%reply.NReduce], kva)
-			}
-
-			// write into intermediate files
-			for i := range buckets {
-				oname := "mr-" + strconv.Itoa(reply.MapTaskNumber) + "-" + strconv.Itoa(i)
-				ofile, _ := ioutil.TempFile("", oname+"*")
-				enc := json.NewEncoder(ofile)
-				for _, kva := range buckets[i] {
-					err := enc.Encode(&kva)
-					if err != nil {
-						log.Fatalf("cannot write into %v", oname)
-					}
-				}
-				os.Rename(ofile.Name(), oname)
-				ofile.Close()
-			}
-			// call master to send the finish message
-			finishedArgs := WorkerArgs{reply.MapTaskNumber, -1}
-			finishedReply := ExampleReply{}
-			call("Master.ReceiveFinishedMap", &finishedArgs, &finishedReply)
-		} else if reply.Tasktype == 1 {
-			// reduce task
-			// collect key-value from mr-X-Y
-			intermediate := []KeyValue{}
-			for i := 0; i < reply.NMap; i++ {
-				iname := "mr-" + strconv.Itoa(i) + "-" + strconv.Itoa(reply.ReduceTaskNumber)
-				// open && read the file
-				file, err := os.Open(iname)
+			go func(rr *WorkerReply) {
+				file, err := os.Open(rr.Filename)
 				if err != nil {
-					log.Fatalf("cannot open %v", file)
+					log.Fatalf("cannot open %v", rr.Filename)
 				}
-				dec := json.NewDecoder(file)
-				for {
-					var kv KeyValue
-					if err := dec.Decode(&kv); err != nil {
-						break
-					}
-					intermediate = append(intermediate, kv)
+				content, err := ioutil.ReadAll(file)
+				if err != nil {
+					log.Fatalf("cannot read %v", rr.Filename)
 				}
 				file.Close()
-			}
-			// sort by key
-			sort.Sort(ByKey(intermediate))
 
-			// output file
-			oname := "mr-out-" + strconv.Itoa(reply.ReduceTaskNumber)
-			ofile, _ := ioutil.TempFile("", oname+"*")
+				// fmt.Println("content ...\n", string(content))
+				// time.Sleep(time.Second * 3)
+				kv := mapf(rr.Filename, string(content))
+				sort.Sort(ByKey(kv))
 
-			//
-			// call Reduce on each distinct key in intermediate[],
-			// and print the result to mr-out-0.
-			//
-			i := 0
-			for i < len(intermediate) {
-				j := i + 1
-				for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
-					j++
-				}
-				values := []string{}
-				for k := i; k < j; k++ {
-					values = append(values, intermediate[k].Value)
-				}
-				output := reducef(intermediate[i].Key, values)
-
-				// this is the correct format for each line of Reduce output.
-				fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
-
-				i = j
-			}
-			os.Rename(ofile.Name(), oname)
-			ofile.Close()
-
-			for i := 0; i < reply.NMap; i++ {
-				iname := "mr-" + strconv.Itoa(i) + "-" + strconv.Itoa(reply.ReduceTaskNumber)
-				err := os.Remove(iname)
+				files, err := _initFileList(rr.NReduce, fmt.Sprintf("mr-%d-", rr.MapTaskNumber))
 				if err != nil {
-					log.Fatalf("cannot open delete" + iname)
+					log.Fatalf("cannot create %v", err)
 				}
-			}
 
-			// send the finish message to master
-			finishedArgs := WorkerArgs{-1, reply.ReduceTaskNumber}
-			finishedReply := ExampleReply{}
-			call("Master.ReceiveFinishedReduce", &finishedArgs, &finishedReply)
+				// fmt.Println("kv result...\n", kv)
+				// time.Sleep(time.Second * 10)
+				for j := 0; j < len(kv); j++ {
+					//fmt.Println(kv[j].Key)
+					index := ihash(kv[j].Key) % rr.NReduce
+					fmt.Fprintf(files[index], "%v %v\n", kv[j].Key, kv[j].Value)
+				}
+
+				_closeFileList(files)
+				fmt.Printf("maptask %d has fininshed\n", rr.MapTaskNumber)
+				call("Master.Mapfinshed", &WorkerArgs{MapTaskNumber: rr.MapTaskNumber}, &WorkerReply{})
+			}(&reply)
+		} else if reply.Tasktype == 1 {
+			go func() {
+				mrs, err := _openFileList(reply.NMap, "mr-", reply.ReduceTaskNumber)
+				if err != nil {
+					log.Panic(err)
+				}
+				out, err := os.Create(fmt.Sprintf("mr-out-%d", reply.ReduceTaskNumber))
+				if err != nil {
+					log.Panic(err)
+				}
+
+				// TODO goroutine 并发
+				kva := []KeyValue{}
+				for _, mr := range mrs {
+					filescanner := bufio.NewScanner(mr)
+
+					for filescanner.Scan() {
+						str := filescanner.Text()
+						tmp := strings.Split(str, " ")
+						// fmt.Println(str, tmp)
+						// time.Sleep(time.Second * 2)
+						kv := KeyValue{
+							Key:   tmp[0],
+							Value: tmp[1],
+						}
+						kva = append(kva, kv)
+					}
+				}
+
+				sort.Sort(ByKey(kva))
+				i, j := 0, 0
+				for i < len(kva) {
+					values := make([]string, 0)
+
+					for j = i; j < len(kva) && kva[i].Key == kva[j].Key; j++ {
+						values = append(values, kva[j].Value)
+					}
+
+					output := reducef(kva[i].Key, values)
+					fmt.Fprintf(out, "%v %v\n", kva[i].Key, output)
+					i = j
+				}
+
+				fmt.Printf("reducetask %d has fininshed\n", reply.ReduceTaskNumber)
+				call("Master.Reducefinshed", &WorkerArgs{ReduceTaskNumber: reply.ReduceTaskNumber}, &WorkerReply{})
+			}()
+		} else if reply.Tasktype == 2 {
+			fmt.Println("sleep for waiting")
+			time.Sleep(time.Second * 1)
+		} else {
+			break
 		}
-		time.Sleep(time.Second)
 	}
-	return
+
+	// periodically ask master for task
+}
+
+func _openFileList(cnt int, prefix string, suffix int) ([]*os.File, error) {
+	fileArray := make([]*os.File, cnt)
+
+	for i := 0; i < cnt; i++ {
+		file, err := os.Open(fmt.Sprintf(prefix+"%d-%d", i, suffix))
+		if err != nil {
+			return nil, err
+		}
+
+		fileArray[i] = file
+	}
+	return fileArray, nil
+}
+
+func _initFileList(cnt int, prefix string) ([]*os.File, error) {
+	fileArray := make([]*os.File, cnt)
+
+	for i := 0; i < cnt; i++ {
+		file, err := os.Create(fmt.Sprintf(prefix+"%d", i))
+		if err != nil {
+			return nil, err
+		}
+
+		fileArray[i] = file
+	}
+	return fileArray, nil
+}
+
+func _closeFileList(files []*os.File) {
+	for _, v := range files {
+		v.Sync()
+		v.Close()
+	}
 }
 
 //
@@ -207,9 +216,9 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
 	sockname := masterSock()
 	c, err := rpc.DialHTTP("unix", sockname)
-	// if err != nil {
-	// 	log.Fatal("dialing:", err)
-	// }
+	if err != nil {
+		log.Fatal("dialing:", err)
+	}
 	defer c.Close()
 
 	err = c.Call(rpcname, args, reply)
@@ -217,6 +226,6 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 		return true
 	}
 
-	// fmt.Println(err)
+	fmt.Println(err)
 	return false
 }
