@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode"
 
-	"TEST_6.824/src/mr"
+	"mr"
 )
 
 //
