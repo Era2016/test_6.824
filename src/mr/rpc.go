@@ -32,8 +32,9 @@ type WorkerArgs struct {
 
 type WorkerReply struct {
 	Tasktype int // 0: map task, 1: reduce task, 2: waiting, 3: job finished
-	NMap     int // number of map task
-	NReduce  int // number of reduce task
+
+	NMap    int // number of map task
+	NReduce int // number of reduce task
 
 	MapTaskNumber int    // maptask only
 	Filename      string // maptask only

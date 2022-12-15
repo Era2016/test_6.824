@@ -14,7 +14,7 @@ import (
 	"os"
 	"time"
 
-	"TEST_6.824/src/mr"
+	"mr"
 )
 
 func main() {

@@ -1,3 +1,7 @@
+/**
+* TODO v2.错误容忍（文件操作）
+ */
+
 package mr
 
 import (
@@ -8,6 +12,7 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -39,6 +44,8 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+const tmpdir = "./mr-tmp"
+
 //
 // main/mrworker.go calls this function.
 //
@@ -52,6 +59,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		reply := WorkerReply{}
 		if ret := call("Master.Deploytask", &args, &reply); !ret {
 			fmt.Println("rpc call failed")
+			return
 		} else {
 			fmt.Printf("[Tasktype: %d], [NMap: %d], [NReduce: %d], [MapTaskNumber: %d], [Filename: %s], [ReduceTaskNumber: %d]\n",
 				reply.Tasktype, reply.NMap, reply.NReduce, reply.MapTaskNumber,
@@ -75,9 +83,9 @@ func Worker(mapf func(string, string) []KeyValue,
 				kv := mapf(rr.Filename, string(content))
 				sort.Sort(ByKey(kv))
 
-				files, err := _initFileList(rr.NReduce, fmt.Sprintf("mr-%d-", rr.MapTaskNumber))
+				files, err := _initFileList(rr.NReduce, tmpdir, fmt.Sprintf("mr-%d-", rr.MapTaskNumber))
 				if err != nil {
-					log.Fatalf("cannot create %v", err)
+					log.Fatalf("cannot create tmpfile %v", err)
 				}
 
 				// fmt.Println("kv result...\n", kv)
@@ -88,17 +96,18 @@ func Worker(mapf func(string, string) []KeyValue,
 					fmt.Fprintf(files[index], "%v %v\n", kv[j].Key, kv[j].Value)
 				}
 
-				_closeFileList(files)
+				// atomically replace
+				_renameFileList(files, fmt.Sprintf("mr-%d-", rr.MapTaskNumber))
 				fmt.Printf("maptask %d has fininshed\n", rr.MapTaskNumber)
 				call("Master.Mapfinshed", &WorkerArgs{MapTaskNumber: rr.MapTaskNumber}, &WorkerReply{})
 			}(&reply)
 		} else if reply.Tasktype == 1 {
 			go func() {
-				mrs, err := _openFileList(reply.NMap, "mr-", reply.ReduceTaskNumber)
+				mrs, err := _openFileList(reply.NMap, tmpdir+"/mr-", reply.ReduceTaskNumber)
 				if err != nil {
 					log.Panic(err)
 				}
-				out, err := os.Create(fmt.Sprintf("mr-out-%d", reply.ReduceTaskNumber))
+				out, err := os.Create(fmt.Sprintf(tmpdir+"/mr-out-%d", reply.ReduceTaskNumber))
 				if err != nil {
 					log.Panic(err)
 				}
@@ -139,7 +148,7 @@ func Worker(mapf func(string, string) []KeyValue,
 				call("Master.Reducefinshed", &WorkerArgs{ReduceTaskNumber: reply.ReduceTaskNumber}, &WorkerReply{})
 			}()
 		} else if reply.Tasktype == 2 {
-			fmt.Println("sleep for waiting")
+			//fmt.Println("sleep for waiting")
 			time.Sleep(time.Second * 1)
 		} else {
 			break
@@ -163,11 +172,17 @@ func _openFileList(cnt int, prefix string, suffix int) ([]*os.File, error) {
 	return fileArray, nil
 }
 
-func _initFileList(cnt int, prefix string) ([]*os.File, error) {
+func _initFileList(cnt int, dir, prefix string) ([]*os.File, error) {
 	fileArray := make([]*os.File, cnt)
 
+	s, err := os.Stat(dir)
+	if os.IsNotExist(err) || !s.IsDir() {
+		os.Mkdir(dir, os.ModePerm)
+	}
+
 	for i := 0; i < cnt; i++ {
-		file, err := os.Create(fmt.Sprintf(prefix+"%d", i))
+		//file, err := os.Create(fmt.Sprintf(prefix+"%d", i))
+		file, err := os.CreateTemp(dir, fmt.Sprintf(prefix+"%d"+".*", i))
 		if err != nil {
 			return nil, err
 		}
@@ -177,10 +192,15 @@ func _initFileList(cnt int, prefix string) ([]*os.File, error) {
 	return fileArray, nil
 }
 
-func _closeFileList(files []*os.File) {
-	for _, v := range files {
+func _renameFileList(files []*os.File, newname string) {
+	for k, v := range files {
 		v.Sync()
-		v.Close()
+		//fmt.Sprintf(newname+"%d", k)
+		err := os.Rename(v.Name(), fmt.Sprintf("%s/"+newname+"%d", filepath.Dir(v.Name()), k))
+		if err != nil {
+			fmt.Printf("rename failed, err: %v", err)
+			os.RemoveAll(v.Name())
+		}
 	}
 }
 
