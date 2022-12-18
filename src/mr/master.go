@@ -5,7 +5,6 @@
 package mr
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -27,50 +26,50 @@ type Master struct {
 	files   []string
 
 	mapfinished int // number of finished map task
-	mapdeployed int // number of deployed map task
 	//maptasklog     []int // log for map task, 0: not allocated, 1: waiting, 2:finished
 	reducefinished int // number of finished map task
-	reducedeployed int // number of deployed reduce task
 	//reducetasklog  []int // log for reduce task
 
 	maptaskRecord    []job // log for map task, 0: not allocated, 1: waiting, 2:finished
 	reducetaskRecord []job // log for reduce task
 
-	//cntMapTask    int          // current assigned reduce number
-	//cntReduceTask int          // current assigned map number
 	mu sync.RWMutex // lock
 }
 
 // Your code here -- RPC handlers for the worker to call.
 func (m *Master) Mapfinshed(args *WorkerArgs, reply *WorkerReply) error {
 	m.mu.Lock()
-	//m.maptasklog[args.MapTaskNumber] = 2
-	m.maptaskRecord[args.MapTaskNumber].stat = 2
-	m.maptaskRecord[args.MapTaskNumber].timer.Stop()
-	m.mapfinished++
+	if m.maptaskRecord[args.MapTaskNumber].stat == 1 {
+		m.maptaskRecord[args.MapTaskNumber].stat = 2
+		m.maptaskRecord[args.MapTaskNumber].timer.Stop()
+		m.mapfinished++
+		//fmt.Printf("map task [%d] finished, total cnt [%d]\n", args.MapTaskNumber, m.mapfinished)
+	}
 	m.mu.Unlock()
 	return nil
 }
 
 func (m *Master) Reducefinshed(args *WorkerArgs, reply *WorkerReply) error {
 	m.mu.Lock()
-	//m.reducetasklog[args.ReduceTaskNumber] = 2
-	m.reducetaskRecord[args.ReduceTaskNumber].stat = 2
-	m.reducetaskRecord[args.ReduceTaskNumber].timer.Stop()
-	m.reducefinished++
+	if m.reducetaskRecord[args.ReduceTaskNumber].stat == 1 {
+		m.reducetaskRecord[args.ReduceTaskNumber].stat = 2
+		m.reducetaskRecord[args.ReduceTaskNumber].timer.Stop()
+		m.reducefinished++
+	}
 	m.mu.Unlock()
 	return nil
 }
 
 func (m *Master) Deploytask(args *WorkerArgs, reply *WorkerReply) error {
 
-	fmt.Printf("receive the req, args: %v\n", args)
-	//fmt.Println(m.cntMapTask, m.nMap, m.mapfinished)
+	//fmt.Printf("receive the req, args: %v\n", args)
+	// defer func() {
+	// 	fmt.Printf("[Tasktype: %d], [NMap: %d], [NReduce: %d], [MapTaskNumber: %d], [Filename: %s], [ReduceTaskNumber: %d]\n",
+	// 		reply.Tasktype, reply.NMap, reply.NReduce, reply.MapTaskNumber,
+	// 		reply.Filename, reply.ReduceTaskNumber)
+	// }()
 
-	for m.mapfinished != m.nMap {
-		if m.mapdeployed == m.nMap {
-			time.Sleep(time.Second * 2)
-		}
+	if m.mapfinished != m.nMap {
 
 		//fmt.Println("search for maptask ...")
 		for i := 0; i < m.nMap; i++ {
@@ -80,22 +79,20 @@ func (m *Master) Deploytask(args *WorkerArgs, reply *WorkerReply) error {
 
 				m.mu.RUnlock()
 				m.mu.Lock()
-				//m.maptasklog[i] = 1
-				m.mapdeployed++
 				m.maptaskRecord[i].stat = 1
-				m.maptaskRecord[i].timer = *time.NewTimer(time.Second * 30)
+				m.maptaskRecord[i].timer = *time.NewTimer(time.Second * 10)
 
 				go func(index int) {
-					t := m.maptaskRecord[i].timer
+					t := m.maptaskRecord[index].timer
 					<-t.C
 
+					//fmt.Printf("start new [%d] map worker\n", index)
 					m.mu.Lock()
-					m.mapdeployed--
-					//m.maptasklog[i] = 0
-					m.maptaskRecord[i].stat = 0
-					m.maptaskRecord[i].timer.Stop()
+					if m.maptaskRecord[index].stat == 1 {
+						m.maptaskRecord[index].stat = 0
+						m.maptaskRecord[index].timer.Stop()
+					}
 					m.mu.Unlock()
-
 				}(i)
 
 				m.mu.Unlock()
@@ -114,33 +111,27 @@ func (m *Master) Deploytask(args *WorkerArgs, reply *WorkerReply) error {
 
 	}
 
-	for m.reducefinished != m.nReduce {
-
-		if m.reducedeployed == m.nReduce {
-			time.Sleep(time.Second * 2)
-		}
+	if m.mapfinished == m.nMap && m.reducefinished != m.nReduce {
 
 		for i := 0; i < m.nReduce; i++ {
 			m.mu.RLock()
 			if m.reducetaskRecord[i].stat == 0 {
 				m.mu.RUnlock()
 				m.mu.Lock()
-				m.reducedeployed++
-				//m.reducetasklog[i] = 1
 				m.reducetaskRecord[i].stat = 1
 				m.reducetaskRecord[i].timer = *time.NewTimer(time.Second * 6)
 
 				go func(index int) {
-					t := m.reducetaskRecord[i].timer
+					t := m.reducetaskRecord[index].timer
 					<-t.C
 
+					//fmt.Printf("start new [%d] reduce worker\n", index)
 					m.mu.Lock()
-					m.reducedeployed--
-					//m.reducetasklog[i] = 0
-					m.reducetaskRecord[i].stat = 0
-					m.reducetaskRecord[i].timer.Stop()
+					if m.reducetaskRecord[index].stat == 1 {
+						m.reducetaskRecord[index].stat = 0
+						m.reducetaskRecord[index].timer.Stop()
+					}
 					m.mu.Unlock()
-
 				}(i)
 
 				m.mu.Unlock()
@@ -158,35 +149,8 @@ func (m *Master) Deploytask(args *WorkerArgs, reply *WorkerReply) error {
 	}
 
 	reply.Tasktype = 2
-
-	/*if m.cntMapTask < m.nMap { // map task
-		m.mu.Lock()
-		m.maptasklog[m.cntMapTask] = 1
-		cnt := m.cntMapTask
-		m.cntMapTask++
-		m.mu.Unlock()
-
-		reply.Tasktype = 0
-		reply.NMap = m.nMap
-		reply.NReduce = m.nReduce
-
-		reply.Filename = m.files[cnt]
-		reply.MapTaskNumber = cnt
-	} else if m.mapfinished == m.nMap && m.cntReduceTask < m.nReduce { // reduce task
-		m.mu.Lock()
-		m.reducetasklog[m.cntReduceTask] = 1
-		cnt := m.cntReduceTask
-		m.cntReduceTask++
-		m.mu.Unlock()
-
-		reply.Tasktype = 1
-		reply.NMap = m.nMap
-		reply.NReduce = m.nReduce
-
-		reply.ReduceTaskNumber = cnt
-	} else { // waiting
-		reply.Tasktype = 2
-	}*/
+	reply.NMap = m.nMap
+	reply.NReduce = m.nReduce
 
 	return nil
 }
@@ -246,8 +210,6 @@ func MakeMaster(files []string, nReduce int) *Master {
 	m.maptaskRecord = make([]job, m.nMap)
 	m.reducetaskRecord = make([]job, m.nReduce)
 
-	//m.cntMapTask = 0
-	//m.cntReduceTask = 0
 	m.server()
 	return &m
 }
