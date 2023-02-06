@@ -1,7 +1,3 @@
-/**
-* TODO v2.错误容忍（文件操作）
- */
-
 package mr
 
 import (
