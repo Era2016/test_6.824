@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode"
 
-	"mr"
+	"6.824/m/mr"
 )
 
 //

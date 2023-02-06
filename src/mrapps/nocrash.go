@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"mr"
+	"6.824/m/mr"
 )
 
 func maybeCrash() {

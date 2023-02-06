@@ -40,7 +40,6 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-//const tmpdir = "./mr-tmp"
 const tmpdir = "."
 
 //
@@ -64,7 +63,6 @@ func Worker(mapf func(string, string) []KeyValue,
 		// 	reply.Filename, reply.ReduceTaskNumber)
 
 		if reply.Tasktype == 0 {
-
 			file, err := os.Open(reply.Filename)
 			if err != nil {
 				log.Fatalf("cannot open %v", reply.Filename)
@@ -90,18 +88,18 @@ func Worker(mapf func(string, string) []KeyValue,
 
 			// atomically replace
 			_renameFileList(files, fmt.Sprintf("mr-%d-", reply.MapTaskNumber))
-			//fmt.Printf("maptask %d has fininshed\n", reply.MapTaskNumber)
+			fmt.Printf("maptask %d has fininshed\n", reply.MapTaskNumber)
 			call("Master.Mapfinshed", &WorkerArgs{MapTaskNumber: reply.MapTaskNumber}, &WorkerReply{})
-
+			//}(&reply)
 		} else if reply.Tasktype == 1 {
-
+			//go func() {
 			mrs, err := _openFileList(reply.NMap, tmpdir+"/mr-", reply.ReduceTaskNumber)
 			if err != nil {
-				log.Fatalf("open mr lists failed, err: %v", err)
+				log.Panic(err)
 			}
 			out, err := os.Create(fmt.Sprintf(tmpdir+"/mr-out-%d", reply.ReduceTaskNumber))
 			if err != nil {
-				log.Fatalf("create mr-out failed, err: %v", err)
+				log.Panic(err)
 			}
 
 			// TODO goroutine 并发
@@ -112,8 +110,6 @@ func Worker(mapf func(string, string) []KeyValue,
 				for filescanner.Scan() {
 					str := filescanner.Text()
 					tmp := strings.Split(str, " ")
-					// fmt.Println(str, tmp)
-					// time.Sleep(time.Second * 2)
 					kv := KeyValue{
 						Key:   tmp[0],
 						Value: tmp[1],
@@ -136,11 +132,9 @@ func Worker(mapf func(string, string) []KeyValue,
 				i = j
 			}
 
-			//fmt.Printf("reducetask %d has fininshed\n", reply.ReduceTaskNumber)
+			fmt.Printf("reducetask %d has fininshed\n", reply.ReduceTaskNumber)
 			call("Master.Reducefinshed", &WorkerArgs{ReduceTaskNumber: reply.ReduceTaskNumber}, &WorkerReply{})
-
 		} else if reply.Tasktype == 2 {
-			//fmt.Println("sleep for waiting")
 			time.Sleep(time.Second * 1)
 		} else {
 			break
