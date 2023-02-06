@@ -10,13 +10,15 @@ package raft
 
 import (
 	"bytes"
-	"labgob"
-	"labrpc"
 	"log"
 	"math/rand"
 	"runtime"
 	"sync"
 	"testing"
+
+	"6.824/m/labrpc"
+
+	"6.824/m/labgob"
 
 	crand "crypto/rand"
 	"encoding/base64"
@@ -563,7 +565,7 @@ func (cfg *config) begin(description string) {
 // end a Test -- the fact that we got here means there
 // was no failure.
 // print the Passed message,
-// and some performance numbers.
+// and some performatruence numbers.
 func (cfg *config) end() {
 	cfg.checkTimeout()
 	if cfg.t.Failed() == false {

@@ -44,7 +44,7 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-const tmpdir = "./"
+const tmpdir = "."
 
 //
 // main/mrworker.go calls this function.
@@ -58,7 +58,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		args := WorkerArgs{}
 		reply := WorkerReply{}
 		if ret := call("Master.Deploytask", &args, &reply); !ret {
-			fmt.Println("rpc call failed")
+			//fmt.Println("rpc call failed")
 			return
 		} else {
 			fmt.Printf("[Tasktype: %d], [NMap: %d], [NReduce: %d], [MapTaskNumber: %d], [Filename: %s], [ReduceTaskNumber: %d]\n",
@@ -67,88 +67,80 @@ func Worker(mapf func(string, string) []KeyValue,
 		}
 
 		if reply.Tasktype == 0 {
-			go func(rr *WorkerReply) {
-				file, err := os.Open(rr.Filename)
-				if err != nil {
-					log.Fatalf("cannot open %v", rr.Filename)
-				}
-				content, err := ioutil.ReadAll(file)
-				if err != nil {
-					log.Fatalf("cannot read %v", rr.Filename)
-				}
-				file.Close()
+			//go func(rr *WorkerReply) {
+			file, err := os.Open(reply.Filename)
+			if err != nil {
+				log.Fatalf("cannot open %v", reply.Filename)
+			}
+			content, err := ioutil.ReadAll(file)
+			if err != nil {
+				log.Fatalf("cannot read %v", reply.Filename)
+			}
+			file.Close()
 
-				// fmt.Println("content ...\n", string(content))
-				// time.Sleep(time.Second * 3)
-				kv := mapf(rr.Filename, string(content))
-				sort.Sort(ByKey(kv))
+			kv := mapf(reply.Filename, string(content))
+			sort.Sort(ByKey(kv))
 
-				files, err := _initFileList(rr.NReduce, tmpdir, fmt.Sprintf("mr-%d-", rr.MapTaskNumber))
-				if err != nil {
-					log.Fatalf("cannot create tmpfile %v", err)
-				}
+			files, err := _initFileList(reply.NReduce, tmpdir, fmt.Sprintf("mr-%d-", reply.MapTaskNumber))
+			if err != nil {
+				log.Fatalf("cannot create tmpfile %v", err)
+			}
 
-				// fmt.Println("kv result...\n", kv)
-				// time.Sleep(time.Second * 10)
-				for j := 0; j < len(kv); j++ {
-					//fmt.Println(kv[j].Key)
-					index := ihash(kv[j].Key) % rr.NReduce
-					fmt.Fprintf(files[index], "%v %v\n", kv[j].Key, kv[j].Value)
-				}
+			for j := 0; j < len(kv); j++ {
+				index := ihash(kv[j].Key) % reply.NReduce
+				fmt.Fprintf(files[index], "%v %v\n", kv[j].Key, kv[j].Value)
+			}
 
-				// atomically replace
-				_renameFileList(files, fmt.Sprintf("mr-%d-", rr.MapTaskNumber))
-				fmt.Printf("maptask %d has fininshed\n", rr.MapTaskNumber)
-				call("Master.Mapfinshed", &WorkerArgs{MapTaskNumber: rr.MapTaskNumber}, &WorkerReply{})
-			}(&reply)
+			// atomically replace
+			_renameFileList(files, fmt.Sprintf("mr-%d-", reply.MapTaskNumber))
+			fmt.Printf("maptask %d has fininshed\n", reply.MapTaskNumber)
+			call("Master.Mapfinshed", &WorkerArgs{MapTaskNumber: reply.MapTaskNumber}, &WorkerReply{})
+			//}(&reply)
 		} else if reply.Tasktype == 1 {
-			go func() {
-				mrs, err := _openFileList(reply.NMap, tmpdir+"/mr-", reply.ReduceTaskNumber)
-				if err != nil {
-					log.Panic(err)
-				}
-				out, err := os.Create(fmt.Sprintf(tmpdir+"/mr-out-%d", reply.ReduceTaskNumber))
-				if err != nil {
-					log.Panic(err)
-				}
+			//go func() {
+			mrs, err := _openFileList(reply.NMap, tmpdir+"/mr-", reply.ReduceTaskNumber)
+			if err != nil {
+				log.Panic(err)
+			}
+			out, err := os.Create(fmt.Sprintf(tmpdir+"/mr-out-%d", reply.ReduceTaskNumber))
+			if err != nil {
+				log.Panic(err)
+			}
 
-				// TODO goroutine 并发
-				kva := []KeyValue{}
-				for _, mr := range mrs {
-					filescanner := bufio.NewScanner(mr)
+			// TODO goroutine 并发
+			kva := []KeyValue{}
+			for _, mr := range mrs {
+				filescanner := bufio.NewScanner(mr)
 
-					for filescanner.Scan() {
-						str := filescanner.Text()
-						tmp := strings.Split(str, " ")
-						// fmt.Println(str, tmp)
-						// time.Sleep(time.Second * 2)
-						kv := KeyValue{
-							Key:   tmp[0],
-							Value: tmp[1],
-						}
-						kva = append(kva, kv)
+				for filescanner.Scan() {
+					str := filescanner.Text()
+					tmp := strings.Split(str, " ")
+					kv := KeyValue{
+						Key:   tmp[0],
+						Value: tmp[1],
 					}
+					kva = append(kva, kv)
+				}
+			}
+
+			sort.Sort(ByKey(kva))
+			i, j := 0, 0
+			for i < len(kva) {
+				values := make([]string, 0)
+
+				for j = i; j < len(kva) && kva[i].Key == kva[j].Key; j++ {
+					values = append(values, kva[j].Value)
 				}
 
-				sort.Sort(ByKey(kva))
-				i, j := 0, 0
-				for i < len(kva) {
-					values := make([]string, 0)
+				output := reducef(kva[i].Key, values)
+				fmt.Fprintf(out, "%v %v\n", kva[i].Key, output)
+				i = j
+			}
 
-					for j = i; j < len(kva) && kva[i].Key == kva[j].Key; j++ {
-						values = append(values, kva[j].Value)
-					}
-
-					output := reducef(kva[i].Key, values)
-					fmt.Fprintf(out, "%v %v\n", kva[i].Key, output)
-					i = j
-				}
-
-				fmt.Printf("reducetask %d has fininshed\n", reply.ReduceTaskNumber)
-				call("Master.Reducefinshed", &WorkerArgs{ReduceTaskNumber: reply.ReduceTaskNumber}, &WorkerReply{})
-			}()
+			fmt.Printf("reducetask %d has fininshed\n", reply.ReduceTaskNumber)
+			call("Master.Reducefinshed", &WorkerArgs{ReduceTaskNumber: reply.ReduceTaskNumber}, &WorkerReply{})
+			//}()
 		} else if reply.Tasktype == 2 {
-			//fmt.Println("sleep for waiting")
 			time.Sleep(time.Second * 1)
 		} else {
 			break
