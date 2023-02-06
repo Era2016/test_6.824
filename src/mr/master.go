@@ -1,7 +1,3 @@
-/**
-* TODO v2.健康检查，故障恢复
- */
-
 package mr
 
 import (

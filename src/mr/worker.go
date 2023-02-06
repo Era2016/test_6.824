@@ -44,7 +44,7 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-const tmpdir = "./mr-tmp"
+const tmpdir = "./"
 
 //
 // main/mrworker.go calls this function.
