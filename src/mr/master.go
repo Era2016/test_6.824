@@ -1,7 +1,6 @@
 package mr
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -38,6 +37,10 @@ func (m *Master) Mapfinshed(args *WorkerArgs, reply *WorkerReply) error {
 	m.mu.Lock()
 	m.maptaskRecord[args.MapTaskNumber].stat = 2
 	m.maptaskRecord[args.MapTaskNumber].timer.Stop()
+	//t := m.maptaskRecord[args.MapTaskNumber].timer
+	//if !t.Stop() {
+	//	<-t.C
+	//}
 	m.mapfinished++
 	m.mu.Unlock()
 	return nil
@@ -66,9 +69,9 @@ func (m *Master) Deploytask(args *WorkerArgs, reply *WorkerReply) error {
 
 	if m.mapfinished != m.nMap {
 
-		if m.mapfinished > m.nMap {
-			fmt.Println(m.mapfinished)
-		}
+		//if m.mapfinished > m.nMap {
+		//	fmt.Printf("======%d=======", m.mapfinished)
+		//}
 		for i := 0; i < m.nMap; i++ {
 			if m.maptaskRecord[i].stat != 0 {
 				continue
@@ -82,8 +85,11 @@ func (m *Master) Deploytask(args *WorkerArgs, reply *WorkerReply) error {
 				<-t.C
 
 				m.mu.Lock()
-				m.maptaskRecord[index].stat = 0
-				m.maptaskRecord[index].timer.Stop()
+				if m.maptaskRecord[index].stat == 1 {
+					//fmt.Printf("-------[maptask %d] [state %d] resets maptask------\n", index, m.maptaskRecord[index].stat)
+					m.maptaskRecord[index].stat = 0
+					m.maptaskRecord[index].timer.Stop()
+				}
 				m.mu.Unlock()
 
 			}(i)
@@ -113,8 +119,10 @@ func (m *Master) Deploytask(args *WorkerArgs, reply *WorkerReply) error {
 				<-t.C
 
 				m.mu.Lock()
-				m.reducetaskRecord[index].stat = 0
-				m.reducetaskRecord[index].timer.Stop()
+				if m.reducetaskRecord[index].stat == 1 {
+					m.reducetaskRecord[index].stat = 0
+					m.reducetaskRecord[index].timer.Stop()
+				}
 				m.mu.Unlock()
 
 			}(i)

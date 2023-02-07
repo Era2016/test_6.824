@@ -88,7 +88,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 			// atomically replace
 			_renameFileList(files, fmt.Sprintf("mr-%d-", reply.MapTaskNumber))
-			fmt.Printf("maptask %d has fininshed\n", reply.MapTaskNumber)
+			//fmt.Printf("maptask %d has fininshed\n", reply.MapTaskNumber)
 			call("Master.Mapfinshed", &WorkerArgs{MapTaskNumber: reply.MapTaskNumber}, &WorkerReply{})
 			//}(&reply)
 		} else if reply.Tasktype == 1 {
@@ -132,7 +132,7 @@ func Worker(mapf func(string, string) []KeyValue,
 				i = j
 			}
 
-			fmt.Printf("reducetask %d has fininshed\n", reply.ReduceTaskNumber)
+			//fmt.Printf("reducetask %d has fininshed\n", reply.ReduceTaskNumber)
 			call("Master.Reducefinshed", &WorkerArgs{ReduceTaskNumber: reply.ReduceTaskNumber}, &WorkerReply{})
 		} else if reply.Tasktype == 2 {
 			time.Sleep(time.Second * 1)
