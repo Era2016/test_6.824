@@ -125,7 +125,7 @@ func (rf *Raft) GetState() (int, bool) {
 	var isleader bool
 	// Your code here (2A).
 	rf.mu.Lock()
-	isleader, term = rf.state == STATE_LEADER, rf.currentTerm
+	isleader, term = (rf.state == STATE_LEADER), rf.currentTerm
 	rf.mu.Unlock()
 	return term, isleader
 }
@@ -223,10 +223,15 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if args.Term < rf.currentTerm {
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
+		DPrintf("[term %d]: Raft[%d] refuse the requestVote from raft[%d]: less term",
+			rf.currentTerm, rf.me, args.CandidateId)
 		return
 	}
 
 	if args.Term > rf.currentTerm {
+		if rf.state == STATE_LEADER {
+			DPrintf("[term %d]: Raft[%d] change to [term %d] follower ! <=RequestVote=>", rf.currentTerm, rf.me, args.Term)
+		}
 		rf.currentTerm = args.Term
 		rf.state = STATE_FOLLOWER
 		rf.votedFor = -1
@@ -246,6 +251,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			DPrintf("[term %d]: Raft [%d] vote for Raft [%d]", rf.currentTerm, rf.me, rf.votedFor)
 			return
 		}
+
+		DPrintf("[term %d]: Raft[%d] refuse the requestVote from raft[%d]: less lastLogIndex, curr[%d:%d]->[%d:%d]",
+			rf.currentTerm, rf.me, args.CandidateId, lastLogTerm, lastLogIndex, args.LastLogTerm, args.LastLogIndex)
 	}
 
 	reply.Term = rf.currentTerm
@@ -273,7 +281,8 @@ func (rf *Raft) AppendEntries(args *RequestAppendEntriesArgs, reply *RequestAppe
 	rf.mu.Lock()
 	defer func() {
 		if len(args.Entries) > 0 {
-			DPrintf("[term %d]: Raft[%d] state: [log: %v] [commitIndex %d]", rf.currentTerm, rf.me, rf.log, rf.commitIndex)
+			DPrintf("[term %d]: Raft[%d] state: [isSuccess: %t] [log: %v] [commitIndex %d]",
+				rf.currentTerm, rf.me, reply.Success, rf.log, rf.commitIndex)
 		}
 		rf.mu.Unlock()
 	}()
@@ -289,6 +298,9 @@ func (rf *Raft) AppendEntries(args *RequestAppendEntriesArgs, reply *RequestAppe
 	}
 
 	if args.Term > rf.currentTerm {
+		if rf.state == STATE_LEADER {
+			DPrintf("[term %d]: Raft[%d] change to [term %d] follower ! <=AppendEntries=>", rf.currentTerm, rf.me, args.Term)
+		}
 		rf.currentTerm = args.Term
 		rf.state = STATE_FOLLOWER
 		rf.votedFor = -1
@@ -298,7 +310,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendEntriesArgs, reply *RequestAppe
 	rf.lastReceived = time.Now()
 
 	if args.PrevLogIndex >= len(rf.log) || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
-		DPrintf("===rf.log[prevLogIndex].Term->%d, args.Term->%d===", rf.log[args.PrevLogIndex].Term, args.PrevLogTerm)
+		//DPrintf("===rf.log[prevLogIndex].Term->%d, args.Term->%d===", rf.log[args.PrevLogIndex].Term, args.PrevLogTerm)
 		reply.Success = false
 		return
 	}
@@ -532,6 +544,9 @@ func gatherVotes(rf *Raft, term int, ch chan *RequestVoteReply) int {
 			}
 
 			if r.Term > rf.currentTerm {
+				if rf.state == STATE_LEADER {
+					DPrintf("[term %d]: Raft[%d] change to [term %d] follower ! <=gatherVotes=>", rf.currentTerm, rf.me, r.Term)
+				}
 				rf.currentTerm = r.Term
 				rf.state = STATE_FOLLOWER
 				rf.votedFor = -1
@@ -541,7 +556,7 @@ func gatherVotes(rf *Raft, term int, ch chan *RequestVoteReply) int {
 
 			rf.mu.Unlock()
 
-			if r.VoteGranted == true {
+			if r.VoteGranted {
 				voted++
 			}
 		case <-tt.C:
@@ -588,8 +603,8 @@ func (rf *Raft) sendRequestAppend(index int) {
 			DPrintf("[term %d]:Raft [%d] sends appendEntries to server[%d], [prevLogIndex:%d]-[prevLogTerm:%d]-[leaderCommit:%d] [%v]",
 				term, rf.me, index, prevLogIndex, prevLogTerm, leaderCommit, entries)
 		} else {
-			DPrintf("[term %d]:Raft [%d] [state %d] sends heartbeats RPC to server[%d]",
-				term, rf.me, rf.state, index)
+			// DPrintf("[term %d]:Raft [%d] [state %d] sends heartbeats RPC to server[%d]",
+			// 	term, rf.me, rf.state, index)
 		}
 
 		ret := rf.peers[index].Call("Raft.AppendEntries", &req, &reply)
@@ -597,6 +612,7 @@ func (rf *Raft) sendRequestAppend(index int) {
 
 		rf.mu.Lock()
 		if term != rf.currentTerm || !ret {
+			DPrintf("[term %d]:Raft [%d] [term %d] confused or calling [%d] failed", rf.currentTerm, rf.me, term, index)
 			rf.mu.Unlock()
 			continue
 		}
@@ -606,7 +622,7 @@ func (rf *Raft) sendRequestAppend(index int) {
 			rf.nextIndex[index] = rf.nextIndex[index] + len(entries)
 			rf.matchIndex[index] = prevLogIndex + len(entries)
 			if !isHeartbeat {
-				DPrintf("[term %d]: Raft[%d] successfully append entries to Raft[%d]", rf.currentTerm, rf.me, index)
+				DPrintf("[term %d]:Raft [%d] successfully append entries to Raft[%d]", rf.currentTerm, rf.me, index)
 			}
 		} else {
 			rf.nextIndex[index] = int(math.Max(1.0, float64(rf.nextIndex[index]-1)))

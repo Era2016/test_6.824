@@ -11,7 +11,7 @@ import (
 )
 
 type job struct {
-	timer time.Timer
+	timer *time.Timer
 	stat  int
 }
 
@@ -78,18 +78,18 @@ func (m *Master) Deploytask(args *WorkerArgs, reply *WorkerReply) error {
 			}
 
 			m.maptaskRecord[i].stat = 1
-			m.maptaskRecord[i].timer = *time.NewTimer(time.Second * 10)
+			m.maptaskRecord[i].timer = time.NewTimer(time.Second * 10)
 
 			go func(index int) {
 				t := m.maptaskRecord[index].timer
 				<-t.C
 
 				m.mu.Lock()
-				if m.maptaskRecord[index].stat == 1 {
-					//fmt.Printf("-------[maptask %d] [state %d] resets maptask------\n", index, m.maptaskRecord[index].stat)
-					m.maptaskRecord[index].stat = 0
-					m.maptaskRecord[index].timer.Stop()
-				}
+				//if m.maptaskRecord[index].stat == 1 {
+				//fmt.Printf("-------[maptask %d] [state %d] resets maptask------\n", index, m.maptaskRecord[index].stat)
+				m.maptaskRecord[index].stat = 0
+				m.maptaskRecord[index].timer.Stop()
+				//}
 				m.mu.Unlock()
 
 			}(i)
@@ -112,17 +112,17 @@ func (m *Master) Deploytask(args *WorkerArgs, reply *WorkerReply) error {
 			}
 
 			m.reducetaskRecord[i].stat = 1
-			m.reducetaskRecord[i].timer = *time.NewTimer(time.Second * 10)
+			m.reducetaskRecord[i].timer = time.NewTimer(time.Second * 10)
 
 			go func(index int) {
 				t := m.reducetaskRecord[index].timer
 				<-t.C
 
 				m.mu.Lock()
-				if m.reducetaskRecord[index].stat == 1 {
-					m.reducetaskRecord[index].stat = 0
-					m.reducetaskRecord[index].timer.Stop()
-				}
+				//if m.reducetaskRecord[index].stat == 1 {
+				m.reducetaskRecord[index].stat = 0
+				m.reducetaskRecord[index].timer.Stop()
+				//}
 				m.mu.Unlock()
 
 			}(i)
