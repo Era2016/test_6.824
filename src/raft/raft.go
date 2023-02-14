@@ -322,26 +322,34 @@ func (rf *Raft) AppendEntries(args *RequestAppendEntriesArgs, reply *RequestAppe
 	//after that point.
 
 	// delete the conficting entries
-	i := args.PrevLogIndex + 1
-	j := 0
-	for ; i < len(rf.log) && j < len(args.Entries); i++ {
-		if rf.log[i].Term == args.Entries[j].Term {
+	i := 0
+	j := args.PrevLogIndex + 1
+	for i = 0; i < len(args.Entries); i++ {
+		if j >= len(rf.log) {
+			break
+		}
+		if rf.log[j].Term == args.Entries[i].Term {
 			j++
 		} else {
-			rf.log = append(rf.log[:i], args.Entries[j:]...)
+			rf.log = append(rf.log[:j], args.Entries[i:]...)
+			i = len(args.Entries)
+			j = len(rf.log) - 1
 			break
 		}
 	}
-
-	// append the entries
-	if j < len(args.Entries) {
-		rf.log = append(rf.log, args.Entries[j:]...)
+	if i < len(args.Entries) {
+		rf.log = append(rf.log, args.Entries[i:]...)
+		j = len(rf.log) - 1
+	} else { // no more new entry to be added
+		j--
 	}
-
-	lastLogIndex := len(rf.log) - 1
+	lastLogIndex := j
 
 	if args.LeaderCommit > rf.commitIndex {
 		// set commitIndex = min(leaderCommit, index of last **new** entry)
+		// we should compare between the last entry and the leaderCommit
+		// it means the index matching this current appendEntries request's last entry
+		// that is args.Entries[last]
 		originIndex := rf.commitIndex
 		rf.commitIndex = int(math.Min(float64(args.LeaderCommit), float64(lastLogIndex)))
 		if rf.commitIndex > originIndex {
@@ -473,6 +481,8 @@ func (rf *Raft) ticker() {
 		if voted > len(rf.peers)/2 {
 			rf.mu.Lock()
 			rf.state = STATE_LEADER
+			// ***attention***  this log record needs to be cut, or cannot be commited by next term//
+			rf.log = rf.log[:rf.commitIndex+1]
 			for i := 0; i < len(rf.peers); i++ {
 				rf.nextIndex[i] = len(rf.log)
 				rf.matchIndex[i] = 0
@@ -579,11 +589,12 @@ func (rf *Raft) sendRequestAppend(index int) {
 		term := rf.currentTerm
 		leaderId := rf.me
 		leaderCommit := rf.commitIndex
-		prevLogIndex := rf.nextIndex[index] - 1
+		nextIndexVal := rf.nextIndex[index]
+		prevLogIndex := nextIndexVal - 1
 		prevLogTerm := rf.log[prevLogIndex].Term
 		entries := make([]LogEntry, 0)
 		if len(rf.log)-1 > prevLogIndex { // must appear
-			entries = rf.log[prevLogIndex+1:]
+			entries = rf.log[nextIndexVal:]
 		}
 		rf.mu.Unlock()
 
@@ -619,11 +630,15 @@ func (rf *Raft) sendRequestAppend(index int) {
 
 		// update nextIndex and matchIndex
 		if reply.Success {
-			rf.nextIndex[index] = rf.nextIndex[index] + len(entries)
+			// ***attention*** it should use the temp variable: nextIndexVal //
+			rf.nextIndex[index] = nextIndexVal + len(entries)
 			rf.matchIndex[index] = prevLogIndex + len(entries)
 			if !isHeartbeat {
 				DPrintf("[term %d]:Raft [%d] successfully append entries to Raft[%d]", rf.currentTerm, rf.me, index)
 			}
+		} else if !reply.Success && reply.Term > rf.currentTerm {
+			rf.currentTerm = reply.Term
+			rf.state = STATE_FOLLOWER
 		} else {
 			rf.nextIndex[index] = int(math.Max(1.0, float64(rf.nextIndex[index]-1)))
 			rf.mu.Unlock()
@@ -640,6 +655,7 @@ func (rf *Raft) sendRequestAppend(index int) {
 // appendEntries / heartbeats
 func (rf *Raft) activateAppendEntry() {
 	DPrintf("[term %d]:Raft [%d] [state %d] becomes leader !", rf.currentTerm, rf.me, rf.state)
+	DPrintf("[term %d]:Raft [%d] [leader log: %v]", rf.currentTerm, rf.me, rf.log)
 
 	for peer := range rf.peers {
 		if peer == rf.me {
