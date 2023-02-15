@@ -472,9 +472,20 @@ func (rf *Raft) ticker() {
 		}
 
 		// start election
+		rf.mu.Lock()
+		rf.votedFor = rf.me
+		rf.currentTerm++
+		rf.state = STATE_CANDIDATE
+		rf.lastReceived = time.Now()
+
+		term := rf.currentTerm
+		lastLogIndex := len(rf.log) - 1
+		lastLogTerm := rf.log[lastLogIndex].Term
+
+		rf.mu.Unlock()
 		ch := make(chan *RequestVoteReply, len(rf.peers)-1)
-		term := startRequestVote(rf, ch)
-		voted := gatherVotes(rf, term, ch)
+		go rf.startRequestVote(ch, term, lastLogIndex, lastLogTerm)
+		voted := rf.gatherVotes(term, ch)
 		//DPrintf("collectedVote result, [peer %d] [term %d] [cnt: %d]", rf.me, term, voted)
 
 		// candidate => leader
@@ -496,20 +507,7 @@ func (rf *Raft) ticker() {
 	}
 }
 
-func startRequestVote(rf *Raft, ch chan *RequestVoteReply) int {
-	// send vote request
-	rf.mu.Lock()
-	rf.votedFor = rf.me
-	rf.currentTerm++
-	rf.state = STATE_CANDIDATE
-	rf.lastReceived = time.Now()
-
-	candidateId := rf.me
-	term := rf.currentTerm
-	lastLogIndex := len(rf.log) - 1
-	lastLogTerm := rf.log[lastLogIndex].Term
-
-	rf.mu.Unlock()
+func (rf *Raft) startRequestVote(ch chan *RequestVoteReply, term, lastLogIndex, lastLogTerm int) {
 
 	DPrintf("[term %d]:Raft [%d][state %d] starts an election\n", term, rf.me, rf.state)
 	for peer := range rf.peers {
@@ -522,7 +520,7 @@ func startRequestVote(rf *Raft, ch chan *RequestVoteReply) int {
 			term, rf.me, rf.state, peer)
 		go func(end *labrpc.ClientEnd) {
 			req := RequestVoteArgs{
-				CandidateId:  candidateId,
+				CandidateId:  rf.me,
 				Term:         term,
 				LastLogTerm:  lastLogTerm,
 				LastLogIndex: lastLogIndex,
@@ -533,11 +531,9 @@ func startRequestVote(rf *Raft, ch chan *RequestVoteReply) int {
 			}
 		}(rf.peers[peer])
 	}
-
-	return term
 }
 
-func gatherVotes(rf *Raft, term int, ch chan *RequestVoteReply) int {
+func (rf *Raft) gatherVotes(term int, ch chan *RequestVoteReply) int {
 	// var voteMu sync.Mutex
 	voted := 1
 	tt := time.NewTimer(REQUEST_VOTE_REPLY_TIME * time.Millisecond)
@@ -688,7 +684,7 @@ func (rf *Raft) activateCommitCheck() {
 			}
 		}
 		rf.mu.Unlock()
-		time.Sleep(time.Duration(COMMITCHECK_INTERVAL) * time.Microsecond)
+		time.Sleep(time.Duration(COMMITCHECK_INTERVAL) * time.Millisecond)
 	}
 }
 
