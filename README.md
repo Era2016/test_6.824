@@ -5,7 +5,7 @@ distributed system
 
 ## Source Codes
 
--   [x] [Lab 1: MapReduce](src/mr/)
+-   [ ] [Lab 1: MapReduce](src/mr/)
 -   [ ] [Lab 2: replication for fault-tolerance using Raft](src/raft/)
 -   [ ] [Lab 3: fault-tolerant key/value store](src/kvraft/)
 -   [ ] [Lab 4: sharded key/value store](src/shardkv/)
@@ -13,15 +13,15 @@ distributed system
 ## Documents
 
 -   [Labs](docs/labs/)
-    -   [x] [Lab 1: MapReduce](docs/labs/l01/)
+    -   [ ] [Lab 1: MapReduce](docs/labs/l01/)
     -   [ ] [Lab 2: replication for fault-tolerance using Raft](docs/labs/l02/)
     -   [ ] [Lab 3: fault-tolerant key/value store](docs/labs/l03/)
     -   [ ] [Lab 4: sharded key/value store](docs/labs/l04/)
 
 -   [Lectures](docs/lectures/)
-    -   [x] [Lecture 1: Introduction](docs/lectures/l01/)
-    -   [x] [Lecture 2: RPC and Threads](docs/lectures/l02/)
-    -   [x] [Lecture 3: GFS](docs/lectures/l03/)
+    -   [ ] [Lecture 1: Introduction](docs/lectures/l01/)
+    -   [ ] [Lecture 2: RPC and Threads](docs/lectures/l02/)
+    -   [ ] [Lecture 3: GFS](docs/lectures/l03/)
     -   [ ] [Lecture 4](#)
 
 ## Schedule: Spring 2021
